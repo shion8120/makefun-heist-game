@@ -163,6 +163,7 @@ export function drawWorld(ctx, state) {
   for (const g of floor.guards) drawGuard(ctx, g);
   if (state.mode !== 'end' || state.ending?.escaped) drawThief(ctx, state.player, t);
   for (const g of floor.guards) drawGuardMarker(ctx, g, guardMood(g), t);
+  drawObjective(ctx, state, floor, t);
   drawPopups(ctx, state);
   drawPrompt(ctx, state);
   if (floor.powerCut > 0) drawPowerCut(ctx, floor);
@@ -242,6 +243,74 @@ function drawFixtures(ctx, state, floor, t) {
     ctx.textBaseline = 'middle';
     ctx.fillText('◀ EXIT', TILE + 9, 17.5 * TILE);
   }
+}
+
+/** Where the thief should head next, on this floor: note, stairs, vault door, crown, then the dock. */
+function currentObjective(state, floor) {
+  const p = state.player;
+  const stairs = stairCentres(floor)[0];
+  const toStairs = (text) => stairs && { x: stairs[0] * TILE, y: stairs[1] * TILE, text };
+  if (!p.hasNote) {
+    const note = floor.loot.find((item) => item.kind === 'note' && !item.taken);
+    return note ? { x: note.x, y: note.y, text: 'FIND THE CODE NOTE' } : toStairs('UP: CODE NOTE IN THE OFFICE');
+  }
+  if (!p.hasCrown) {
+    if (floor.index === 0) return toStairs('DOWN TO THE VAULT');
+    if (floor.keypad && !floor.keypad.open) return { x: floor.keypad.x - TILE / 2, y: floor.keypad.y, text: 'VAULT DOOR' };
+    const crown = floor.loot.find((item) => item.kind === 'crown' && !item.taken);
+    return crown && { x: crown.x, y: crown.y + 14, text: 'STEAL THE CROWN' };
+  }
+  if (floor.index === 1) return toStairs('UP AND OUT');
+  return { x: TILE / 2, y: 17.5 * TILE, text: 'ESCAPE!' };
+}
+
+/** A pulsing ring and label on the current objective, so the next step is never a guess. */
+function drawObjective(ctx, state, floor, t) {
+  if (state.mode !== 'play') return;
+  const goal = currentObjective(state, floor);
+  if (!goal) return;
+  const pulse = 25 + Math.sin(t * 4) * 4;
+  ctx.strokeStyle = '#f4ead0';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([7, 5]);
+  ctx.lineDashOffset = -t * 20;
+  ctx.beginPath();
+  ctx.arc(goal.x, goal.y, pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineDashOffset = 0;
+  ctx.font = `bold ${goal.text === 'VAULT DOOR' ? 14 : 12}px "Segoe UI", Arial, sans-serif`;
+  const w = ctx.measureText(goal.text).width + 16;
+  const lx = Math.max(w / 2 + 4, Math.min(VIEW_W - w / 2 - 4, goal.x));
+  const ly = goal.y - pulse - 16;
+  ctx.fillStyle = 'rgba(10, 13, 22, 0.88)';
+  ctx.fillRect(lx - w / 2, ly - 10, w, 20);
+  ctx.fillStyle = '#f4ead0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(goal.text, lx, ly + 1);
+
+  // A small arrow beside the thief pointing at the objective while it is far away.
+  const p = state.player;
+  const dist = Math.hypot(goal.x - p.x, goal.y - p.y);
+  if (dist < 5 * TILE) return;
+  const angle = Math.atan2(goal.y - p.y, goal.x - p.x);
+  ctx.save();
+  ctx.translate(p.x + Math.cos(angle) * 28, p.y + Math.sin(angle) * 28);
+  ctx.rotate(angle);
+  ctx.globalAlpha = 0.65 + Math.sin(t * 4) * 0.25;
+  ctx.fillStyle = '#f4ead0';
+  ctx.strokeStyle = 'rgba(10, 13, 22, 0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(9, 0);
+  ctx.lineTo(-5, -7);
+  ctx.lineTo(-2, 0);
+  ctx.lineTo(-5, 7);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fill();
+  ctx.restore();
 }
 
 function stairCentres(floor) {
